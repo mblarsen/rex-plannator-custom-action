@@ -52,29 +52,35 @@ The `plannotator` browser CLI is not needed.
 
 ## Install the custom actions
 
-Clone the repository:
-
-```sh
-git clone https://github.com/mblarsen/rex-plannator-custom-action.git
-cd rex-plannator-custom-action
-```
-
-Copy the module and helper into the Rex config directory:
+Clone into Rex's configuration directory:
 
 ```sh
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/rex"
-mkdir -p "$config_dir/plannotator"
-cp plannotator.lua "$config_dir/plannotator.lua"
-cp bridge.py "$config_dir/plannotator/bridge.py"
+mkdir -p "$config_dir"
+git clone https://github.com/mblarsen/rex-plannator-custom-action.git \
+  "$config_dir/rex-plannator-custom-action"
+cd "$config_dir/rex-plannator-custom-action"
 ```
 
-Install the companion extension into Pi's user extensions directory:
+Rex loads modules beside the `init.lua` path it opens.
+If your `init.lua` is a symlink, clone beside the symlink, not its target.
+For a custom Rex config location, use that directory instead.
+The module finds `bridge.py` beside its own source. Do not copy runtime files out of the clone.
+
+Install the companion symlink:
 
 ```sh
-agent_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-mkdir -p "$agent_dir/extensions"
-cp pi-extension.ts "$agent_dir/extensions/rex-plannotator.ts"
+python3 install.py
 ```
+
+The installer links Pi's `extensions/rex-plannotator.ts` to `pi-extension.ts` in this clone.
+It uses `PI_CODING_AGENT_DIR`, or `~/.pi/agent` when the variable is unset.
+Use `python3 install.py --agent-dir /absolute/path/to/pi-agent` for a custom Pi agent directory.
+Use the same `agent_dir` in the Lua options when Rex does not inherit that environment variable.
+
+Repeated installation leaves the existing link unchanged.
+The installer refuses to overwrite a regular file, directory, or link to another location.
+It does not edit your Rex configuration or Pi settings.
 
 Run `/reload` in Pi, or restart Pi. The extension only emits status inside an interactive Rex terminal.
 It adds no commands, tools, timers, sockets, or external dependencies.
@@ -84,7 +90,7 @@ It uses a separate status record and does not replace Pi's normal busy, dialog, 
 Add this line to your existing Rex `init.lua`. Do not replace unrelated configuration:
 
 ```lua
-require("plannotator").setup()
+require("rex-plannator-custom-action").setup()
 ```
 
 Check and reload:
@@ -127,7 +133,7 @@ The module does not install a pass-through binding or replace your other prefix 
 ### Change or disable the default bindings
 
 ```lua
-require("plannotator").setup({
+require("rex-plannator-custom-action").setup({
   keys = {
     pick = "ctrl+a>shift+o",
     newest = "ctrl+a>ctrl+o",
@@ -140,7 +146,7 @@ Set either key to `false` to disable that binding. Both actions still appear in 
 To manage all bindings yourself:
 
 ```lua
-require("plannotator").setup({ keys = false })
+require("rex-plannator-custom-action").setup({ keys = false })
 
 rex.bind("ctrl+b>shift+o", "plannotator_pick")
 rex.bind("ctrl+b>ctrl+o", "plannotator_newest")
@@ -155,7 +161,7 @@ The default is a focused, equal-width split to the right of Pi.
 This example places the review below Pi:
 
 ```lua
-require("plannotator").setup({
+require("rex-plannator-custom-action").setup({
   split = {
     direction = "vertical", -- horizontal: left/right; vertical: above/below
     side = "after",         -- before: left/top; after: right/bottom
@@ -171,22 +177,21 @@ The ratio must be greater than zero and less than one.
 
 ### Change helper and executable locations
 
-Each executable defaults to a command name on PATH. The helper defaults to the Rex config directory.
+Each executable defaults to a command name on PATH. The helper defaults to `bridge.py` beside the module.
 Combine any of these options in one `setup` call:
 
 ```lua
 local home = os.getenv("HOME")
-local config = os.getenv("XDG_CONFIG_HOME") or (home .. "/.config")
 
-require("plannotator").setup({
+require("rex-plannator-custom-action").setup({
   python = "python3",
-  helper = config .. "/rex/plannotator/bridge.py",
   tui = "plannotator-tui",
   rex = "rex",
   agent_dir = home .. "/.pi/agent",
 })
 ```
 
+To override helper discovery, set `helper = "/absolute/path/to/bridge.py"` in the same options table.
 `helper` and `agent_dir` should be absolute paths. Executable options accept a command name or an absolute path, without shell flags.
 Arguments are passed directly, so paths with spaces need no extra quotes inside the Lua strings.
 
@@ -231,8 +236,45 @@ Each distinct clipboard export is kept. Exporting an edited review again stages 
 For one final version, export only when the review is ready to close.
 The TUI retains its normal clipboard and feedback archive behavior.
 
-Your existing local installation is independent of a clone of this repository.
-Copy updated files into your Rex config directory to use changes from the clone.
+## Upgrade
+
+Update the clone, then reload Rex:
+
+```sh
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/rex"
+git -C "$config_dir/rex-plannator-custom-action" pull --ff-only
+rex config check
+rex config reload
+```
+
+Run `/reload` in Pi to load companion changes. Open a new review to use the updated helper.
+The symlink follows updates to the clone. You do not need to run the installer again.
+
+### Migrate from copied files
+
+Clone into the config directory as described above.
+If `extensions/rex-plannotator.ts` is a copied file, move it to a backup before running `python3 install.py`.
+The installer deliberately refuses to replace it.
+Replace the old `require("plannotator").setup(...)` line with `require("rex-plannator-custom-action").setup(...)`.
+Keep your options, but remove any helper override that still points to an old copy.
+Do not keep both setup calls. Reload Rex and Pi, then archive the unused copied files.
+
+## Uninstall
+
+From the clone, remove the companion symlink:
+
+```sh
+python3 install.py uninstall
+```
+
+Use the same `--agent-dir` option if you installed into a custom Pi agent directory.
+The command removes only a symlink that points to this clone's companion.
+It leaves unrelated extensions, Pi settings, and the source files unchanged.
+
+Remove the module's setup call and any explicit annotation bindings from your Rex `init.lua`.
+Run `rex config check`, `rex config reload`, and `/reload` in Pi.
+After closing any open reviews, you can remove the clone if you have no local changes to keep.
+Uninstall before moving the clone, then install again from its new location.
 
 ## Tests
 
@@ -245,12 +287,13 @@ node --experimental-strip-types --test tests/test_extension.mjs
 ```
 
 The Python tests cover export parsing, UUID targeting, stale process records, ambiguous transcripts, executable overrides, and safe delivery.
+Installer tests check symlink updates, repeated installation, custom paths, and refusal to change unrelated files or links.
 The Lua tests cover default and custom bindings, disabled bindings, executable options, split layout, and preflight failures.
 The companion tests cover protocol IDs, lifecycle cleanup, session replacement, and non-interactive guards.
 Lua 5.1 matches Rex's scripting runtime. The tests also run on newer Lua versions.
 Companion tests require Node.js 22.6 or newer for TypeScript stripping; Pi loads the extension itself without a build step.
 
-For an installed-version config check, add `require("plannotator").setup()` to your config and run `rex config check`.
+For an installed-version check, add the setup call to your config and run `rex config check`.
 To test a draft without changing the live config, run `rex config check /absolute/path/to/draft.lua`.
 
 ## License

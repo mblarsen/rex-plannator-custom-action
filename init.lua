@@ -1,6 +1,7 @@
 local M = {}
 local home = os.getenv("HOME")
-local config = os.getenv("XDG_CONFIG_HOME") or (home .. "/.config")
+local source = debug.getinfo(1, "S").source:gsub("^@", "")
+local directory = source:match("^(.*)/[^/]+$") or "."
 
 function M.setup(opts)
   opts = opts or {}
@@ -11,7 +12,7 @@ function M.setup(opts)
   assert(direction == "horizontal" or direction == "vertical", "Invalid split.direction")
   assert(side == "before" or side == "after", "Invalid split.side")
   assert(type(ratio) == "number" and ratio > 0 and ratio < 1, "split.ratio must be between 0 and 1")
-  local helper = opts.helper or (config .. "/rex/plannotator/bridge.py")
+  local helper = opts.helper or (directory .. "/bridge.py")
   local python = opts.python or "python3"
   local function open(ctx, newest)
     if not ctx.block_id then error("Focus a Pi terminal first", 0) end

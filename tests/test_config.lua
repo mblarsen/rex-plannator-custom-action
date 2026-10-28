@@ -29,7 +29,8 @@ local function includes(argv, flag, value)
   end
   return false
 end
-local module = dofile("plannotator.lua")
+local directory = assert(os.getenv("PWD"), "Run these tests from the repository root")
+local module = dofile(directory .. "/init.lua")
 local ctx = { block_id = "pi", session_id = "session" }
 local passed = 0
 local function test(name, fn)
@@ -60,12 +61,24 @@ test("default split and interpreter", function()
   module.setup()
   actions.plannotator_pick.run(ctx)
   assert(exec_argv[1] == "python3")
+  assert(exec_argv[2] == directory .. "/bridge.py")
   assert(exec_argv[#exec_argv] == "--check")
   assert(split_args.session_id == "session" and split_args.anchor_id == "pi")
   assert(split_args.direction == "horizontal" and split_args.side == "after")
   assert(split_args.ratio == 0.5 and split_args.focus)
   assert(not includes(split_args.layout.options.command, "--check"))
   assert(not includes(split_args.layout.options.command, "--newest"))
+end)
+
+test("directory require loads the clone entry point", function()
+  local parent, name = directory:match("^(.*)/([^/]+)$")
+  local previous = package.path
+  package.path = parent .. "/?/init.lua;" .. package.path
+  local plugin = require(name)
+  package.path = previous
+  plugin.setup({ keys = false })
+  actions.plannotator_pick.run(ctx)
+  assert(exec_argv[2] == directory .. "/bridge.py")
 end)
 
 test("custom paths and layout", function()
